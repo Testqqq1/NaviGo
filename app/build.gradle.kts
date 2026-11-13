@@ -82,8 +82,10 @@ dependencies {
   implementation(libs.androidx.navigation3.runtime)
   implementation(libs.androidx.lifecycle.viewmodel.navigation3)
 
-  // Maps and Location (OpenStreetMap - No API Key Required)
-  implementation(libs.osmdroid.android)
+  // Maps and Location
+  implementation(libs.maps.compose)
+  implementation(libs.maps.compose.utils)
+  implementation(libs.play.services.maps)
   implementation(libs.play.services.location)
   implementation(libs.androidx.compose.material.icons.extended)
 }
