@@ -1,9 +1,9 @@
 package com.example.navigo.data
 
-import com.google.android.gms.maps.model.LatLng
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.osmdroid.util.GeoPoint
 import java.util.UUID
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -115,13 +115,13 @@ class MapRepository {
         }
     }
 
-    fun addCustomPin(latLng: LatLng, name: String = "หมุดที่กำหนดเอง"): Place {
+    fun addCustomPin(geoPoint: GeoPoint, name: String = "หมุดที่กำหนดเอง"): Place {
         val newPlace = Place(
             id = UUID.randomUUID().toString(),
             name = name,
-            address = "พิกัด: ${String.format("%.4f", latLng.latitude)}, ${String.format("%.4f", latLng.longitude)}",
-            latitude = latLng.latitude,
-            longitude = latLng.longitude,
+            address = "พิกัด: ${String.format("%.4f", geoPoint.latitude)}, ${String.format("%.4f", geoPoint.longitude)}",
+            latitude = geoPoint.latitude,
+            longitude = geoPoint.longitude,
             category = PlaceCategory.LANDMARK,
             isFavorite = false
         )
@@ -139,12 +139,12 @@ class MapRepository {
         _history.value = listOf(newEntry) + _history.value
     }
 
-    fun calculateRoute(origin: LatLng, destination: Place): RoutePlan {
+    fun calculateRoute(origin: GeoPoint, destination: Place): RoutePlan {
         val distKm = calculateDistanceInKm(origin.latitude, origin.longitude, destination.latitude, destination.longitude)
         val estimatedMins = (distKm / 35.0 * 60).toInt().coerceAtLeast(5) // avg speed 35 km/h in city
 
         // Generate smooth intermediate polyline points
-        val polyline = mutableListOf<LatLng>()
+        val polyline = mutableListOf<GeoPoint>()
         val segments = 8
         polyline.add(origin)
         for (i in 1 until segments) {
@@ -153,9 +153,9 @@ class MapRepository {
             val midLng = origin.longitude + (destination.longitude - origin.longitude) * fraction
             // Add slight curve for realism
             val offset = sin(fraction * Math.PI) * 0.003
-            polyline.add(LatLng(midLat + offset, midLng - offset))
+            polyline.add(GeoPoint(midLat + offset, midLng - offset))
         }
-        polyline.add(destination.latLng)
+        polyline.add(destination.geoPoint)
 
         val steps = listOf(
             "เริ่มต้นเดินทางจากตำแหน่งปัจจุบัน",

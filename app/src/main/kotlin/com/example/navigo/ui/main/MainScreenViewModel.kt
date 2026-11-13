@@ -7,19 +7,23 @@ import com.example.navigo.data.Place
 import com.example.navigo.data.PlaceCategory
 import com.example.navigo.data.RoutePlan
 import com.example.navigo.data.TripHistory
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.MapType
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+import org.osmdroid.util.GeoPoint
 
 enum class ActiveTab {
     MAP,
     FAVORITES,
     HISTORY
+}
+
+enum class MapLayerType(val displayName: String) {
+    STANDARD("แผนที่มาตรฐาน"),
+    TOPO("ภูมิประเทศ (Topo)"),
+    TRANSPORT("ขนส่งสาธารณะ")
 }
 
 data class MapUiState(
@@ -28,10 +32,10 @@ data class MapUiState(
     val places: List<Place> = emptyList(),
     val selectedPlace: Place? = null,
     val activeRoute: RoutePlan? = null,
-    val userLocation: LatLng = LatLng(13.7563, 100.5018), // Bangkok City Center
+    val userLocation: GeoPoint = GeoPoint(13.7563, 100.5018), // Bangkok City Center
     val isNavigating: Boolean = false,
     val activeTab: ActiveTab = ActiveTab.MAP,
-    val mapType: MapType = MapType.NORMAL,
+    val mapLayer: MapLayerType = MapLayerType.STANDARD,
     val history: List<TripHistory> = emptyList(),
     val favorites: List<Place> = emptyList()
 )
@@ -44,10 +48,10 @@ class MainScreenViewModel(
     private val _selectedCategory = MutableStateFlow(PlaceCategory.ALL)
     private val _selectedPlace = MutableStateFlow<Place?>(null)
     private val _activeRoute = MutableStateFlow<RoutePlan?>(null)
-    private val _userLocation = MutableStateFlow(LatLng(13.7563, 100.5018))
+    private val _userLocation = MutableStateFlow(GeoPoint(13.7563, 100.5018))
     private val _isNavigating = MutableStateFlow(false)
     private val _activeTab = MutableStateFlow(ActiveTab.MAP)
-    private val _mapType = MutableStateFlow(MapType.NORMAL)
+    private val _mapLayer = MutableStateFlow(MapLayerType.STANDARD)
 
     val uiState: StateFlow<MapUiState> = combine(
         repository.places,
@@ -59,7 +63,7 @@ class MainScreenViewModel(
         _userLocation,
         _isNavigating,
         _activeTab,
-        _mapType
+        _mapLayer
     ) { args: Array<Any?> ->
         @Suppress("UNCHECKED_CAST")
         val places = args[0] as List<Place>
@@ -69,10 +73,10 @@ class MainScreenViewModel(
         val category = args[3] as PlaceCategory
         val selectedPlace = args[4] as Place?
         val route = args[5] as RoutePlan?
-        val userLoc = args[6] as LatLng
+        val userLoc = args[6] as GeoPoint
         val navigating = args[7] as Boolean
         val tab = args[8] as ActiveTab
-        val mapType = args[9] as MapType
+        val mapLayer = args[9] as MapLayerType
 
         val filteredPlaces = places.filter { p ->
             val matchesCategory = category == PlaceCategory.ALL || p.category == category
@@ -91,7 +95,7 @@ class MainScreenViewModel(
             userLocation = userLoc,
             isNavigating = navigating,
             activeTab = tab,
-            mapType = mapType,
+            mapLayer = mapLayer,
             history = history,
             favorites = places.filter { it.isFavorite }
         )
@@ -119,8 +123,8 @@ class MainScreenViewModel(
         }
     }
 
-    fun onMapClick(latLng: LatLng) {
-        val customPlace = repository.addCustomPin(latLng)
+    fun onMapClick(geoPoint: GeoPoint) {
+        val customPlace = repository.addCustomPin(geoPoint)
         onSelectPlace(customPlace)
     }
 
@@ -145,18 +149,18 @@ class MainScreenViewModel(
     }
 
     fun onToggleMapType() {
-        _mapType.value = when (_mapType.value) {
-            MapType.NORMAL -> MapType.SATELLITE
-            MapType.SATELLITE -> MapType.TERRAIN
-            else -> MapType.NORMAL
+        _mapLayer.value = when (_mapLayer.value) {
+            MapLayerType.STANDARD -> MapLayerType.TOPO
+            MapLayerType.TOPO -> MapLayerType.TRANSPORT
+            MapLayerType.TRANSPORT -> MapLayerType.STANDARD
         }
     }
 
-    fun onUpdateUserLocation(latLng: LatLng) {
-        _userLocation.value = latLng
+    fun onUpdateUserLocation(geoPoint: GeoPoint) {
+        _userLocation.value = geoPoint
         _selectedPlace.value?.let { place ->
             if (_activeRoute.value != null) {
-                _activeRoute.value = repository.calculateRoute(latLng, place)
+                _activeRoute.value = repository.calculateRoute(geoPoint, place)
             }
         }
     }

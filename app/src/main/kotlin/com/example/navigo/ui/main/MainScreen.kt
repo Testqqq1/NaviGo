@@ -1,5 +1,7 @@
 package com.example.navigo.ui.main
 
+import android.content.Context
+import android.graphics.Color as AndroidColor
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -23,21 +25,29 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.viewinterop.AndroidView
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.navigation3.runtime.NavKey
 import com.example.navigo.data.Place
 import com.example.navigo.data.PlaceCategory
 import com.example.navigo.data.TripHistory
-import com.google.android.gms.maps.CameraUpdateFactory
-import com.google.android.gms.maps.model.CameraPosition
-import com.google.android.gms.maps.model.LatLng
-import com.google.maps.android.compose.*
-import kotlinx.coroutines.launch
+import org.osmdroid.config.Configuration
+import org.osmdroid.events.MapEventsReceiver
+import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.util.GeoPoint
+import org.osmdroid.views.MapView
+import org.osmdroid.views.overlay.MapEventsOverlay
+import org.osmdroid.views.overlay.Marker
+import org.osmdroid.views.overlay.Polyline
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -49,21 +59,7 @@ fun MainScreen(
     viewModel: MainScreenViewModel = viewModel()
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    val coroutineScope = rememberCoroutineScope()
-
-    val cameraPositionState = rememberCameraPositionState {
-        position = CameraPosition.fromLatLngZoom(state.userLocation, 14f)
-    }
-
-    // Effect to animate camera when a place is selected
-    LaunchedEffect(state.selectedPlace) {
-        state.selectedPlace?.let { place ->
-            cameraPositionState.animate(
-                update = CameraUpdateFactory.newLatLngZoom(place.latLng, 15f),
-                durationMs = 800
-            )
-        }
-    }
+    var recenterTrigger by remember { mutableIntStateOf(0) }
 
     Scaffold(
         modifier = modifier.fillMaxSize(),
@@ -101,16 +97,10 @@ fun MainScreen(
                 ActiveTab.MAP -> {
                     MapTabContent(
                         state = state,
-                        cameraPositionState = cameraPositionState,
+                        recenterTrigger = recenterTrigger,
                         onMapClick = { viewModel.onMapClick(it) },
                         onPlaceClick = { viewModel.onSelectPlace(it) },
-                        onRecenter = {
-                            coroutineScope.launch {
-                                cameraPositionState.animate(
-                                    CameraUpdateFactory.newLatLngZoom(state.userLocation, 15f)
-                                )
-                            }
-                        },
+                        onRecenter = { recenterTrigger++ },
                         onToggleMapType = { viewModel.onToggleMapType() },
                         onToggleFavorite = { viewModel.onToggleFavorite(it) },
                         onStartNavigation = { viewModel.onStartNavigation() },
@@ -145,10 +135,138 @@ fun MainScreen(
 }
 
 @Composable
+fun OsmMapView(
+    state: MapUiState,
+    recenterTrigger: Int,
+    onMapClick: (GeoPoint) -> Unit,
+    onPlaceClick: (Place) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+
+    val mapView = remember {
+        Configuration.getInstance().load(
+            context,
+            context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
+        )
+        Configuration.getInstance().userAgentValue = context.packageName
+
+        MapView(context).apply {
+            setTileSource(TileSourceFactory.MAPNIK)
+            setMultiTouchControls(true)
+            controller.setZoom(14.5)
+            controller.setCenter(state.userLocation)
+        }
+    }
+
+    DisposableEffect(lifecycleOwner, mapView) {
+        val observer = LifecycleEventObserver { _, event ->
+            when (event) {
+                Lifecycle.Event.ON_RESUME -> mapView.onResume()
+                Lifecycle.Event.ON_PAUSE -> mapView.onPause()
+                else -> Unit
+            }
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            mapView.onDetach()
+        }
+    }
+
+    LaunchedEffect(state.selectedPlace) {
+        state.selectedPlace?.let { place ->
+            mapView.controller.animateTo(place.geoPoint, 15.5, 800L)
+        }
+    }
+
+    LaunchedEffect(recenterTrigger) {
+        if (recenterTrigger > 0) {
+            mapView.controller.animateTo(state.userLocation, 15.5, 800L)
+        }
+    }
+
+    val currentOnMapClick by rememberUpdatedState(onMapClick)
+    val currentOnPlaceClick by rememberUpdatedState(onPlaceClick)
+
+    AndroidView(
+        factory = { mapView },
+        modifier = modifier,
+        update = { view ->
+            val targetTileSource = when (state.mapLayer) {
+                MapLayerType.STANDARD -> TileSourceFactory.MAPNIK
+                MapLayerType.TOPO -> TileSourceFactory.OpenTopo
+                MapLayerType.TRANSPORT -> TileSourceFactory.PUBLIC_TRANSPORT
+            }
+            if (view.tileProvider.tileSource != targetTileSource) {
+                view.setTileSource(targetTileSource)
+            }
+
+            view.overlays.clear()
+
+            // Tap on map to drop custom pin
+            val mapEventsOverlay = MapEventsOverlay(object : MapEventsReceiver {
+                override fun singleTapConfirmedHelper(p: GeoPoint): Boolean {
+                    currentOnMapClick(p)
+                    return true
+                }
+
+                override fun longPressHelper(p: GeoPoint): Boolean {
+                    currentOnMapClick(p)
+                    return true
+                }
+            })
+            view.overlays.add(mapEventsOverlay)
+
+            // Route polyline
+            state.activeRoute?.let { route ->
+                val polyline = Polyline().apply {
+                    setPoints(route.polylinePoints)
+                    outlinePaint.color = if (state.isNavigating) {
+                        AndroidColor.parseColor("#00C853")
+                    } else {
+                        AndroidColor.parseColor("#1E88E5")
+                    }
+                    outlinePaint.strokeWidth = 12f
+                }
+                view.overlays.add(polyline)
+            }
+
+            // Place markers
+            state.places.forEach { place ->
+                val marker = Marker(view).apply {
+                    position = place.geoPoint
+                    title = place.name
+                    snippet = "${place.category.displayName} • ★ ${place.rating}"
+                    setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+                    setOnMarkerClickListener { _, _ ->
+                        currentOnPlaceClick(place)
+                        true
+                    }
+                }
+                view.overlays.add(marker)
+            }
+
+            // User location marker
+            val userMarker = Marker(view).apply {
+                position = state.userLocation
+                title = "ตำแหน่งของคุณ"
+                snippet = "กรุงเทพมหานคร"
+                setAnchor(Marker.ANCHOR_CENTER, Marker.ANCHOR_BOTTOM)
+            }
+            view.overlays.add(userMarker)
+
+            view.invalidate()
+        }
+    )
+}
+
+@Composable
 fun MapTabContent(
     state: MapUiState,
-    cameraPositionState: CameraPositionState,
-    onMapClick: (LatLng) -> Unit,
+    recenterTrigger: Int,
+    onMapClick: (GeoPoint) -> Unit,
     onPlaceClick: (Place) -> Unit,
     onRecenter: () -> Unit,
     onToggleMapType: () -> Unit,
@@ -160,50 +278,14 @@ fun MapTabContent(
     onCategorySelect: (PlaceCategory) -> Unit
 ) {
     Box(modifier = Modifier.fillMaxSize()) {
-        // Google Map View
-        GoogleMap(
-            modifier = Modifier.fillMaxSize(),
-            cameraPositionState = cameraPositionState,
-            properties = MapProperties(
-                mapType = state.mapType,
-                isMyLocationEnabled = false // using custom pin for simulator safety
-            ),
-            uiSettings = MapUiSettings(
-                zoomControlsEnabled = false,
-                compassEnabled = true,
-                myLocationButtonEnabled = false
-            ),
-            onMapClick = onMapClick
-        ) {
-            // User Location Marker
-            Marker(
-                state = MarkerState(position = state.userLocation),
-                title = "ตำแหน่งของคุณ",
-                snippet = "กรุงเทพมหานคร"
-            )
-
-            // Places Markers
-            state.places.forEach { place ->
-                Marker(
-                    state = MarkerState(position = place.latLng),
-                    title = place.name,
-                    snippet = "${place.category.displayName} • ★ ${place.rating}",
-                    onClick = {
-                        onPlaceClick(place)
-                        true
-                    }
-                )
-            }
-
-            // Route Polyline
-            state.activeRoute?.let { route ->
-                Polyline(
-                    points = route.polylinePoints,
-                    color = if (state.isNavigating) Color(0xFF00C853) else Color(0xFF1E88E5),
-                    width = 14f
-                )
-            }
-        }
+        // OpenStreetMap View (100% Free, No API Key Required)
+        OsmMapView(
+            state = state,
+            recenterTrigger = recenterTrigger,
+            onMapClick = onMapClick,
+            onPlaceClick = onPlaceClick,
+            modifier = Modifier.fillMaxSize()
+        )
 
         // Top Search & Category Filter (Hidden while actively navigating)
         if (!state.isNavigating) {

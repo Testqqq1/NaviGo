@@ -1,7 +1,6 @@
 package com.example.navigo.data
 
-import com.google.android.gms.maps.model.LatLng
-import kotlinx.serialization.Serializable
+import org.osmdroid.util.GeoPoint
 
 enum class PlaceCategory(val displayName: String) {
     ALL("ทั้งหมด"),
@@ -22,15 +21,15 @@ data class Place(
     val rating: Double = 4.5,
     val isFavorite: Boolean = false
 ) {
-    val latLng: LatLng get() = LatLng(latitude, longitude)
+    val geoPoint: GeoPoint get() = GeoPoint(latitude, longitude)
 }
 
 data class RoutePlan(
-    val origin: LatLng,
+    val origin: GeoPoint,
     val destination: Place,
     val distanceKm: Double,
     val estimatedMinutes: Int,
-    val polylinePoints: List<LatLng>,
+    val polylinePoints: List<GeoPoint>,
     val steps: List<String>
 )
 
