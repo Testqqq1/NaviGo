@@ -22,8 +22,8 @@ enum class ActiveTab {
 
 enum class MapLayerType(val displayName: String) {
     STANDARD("แผนที่มาตรฐาน"),
-    TOPO("ภูมิประเทศ (Topo)"),
-    TRANSPORT("ขนส่งสาธารณะ")
+    SATELLITE("ดาวเทียม (Satellite)"),
+    DARK("โหมดกลางคืน (Dark)")
 }
 
 data class MapUiState(
@@ -150,9 +150,9 @@ class MainScreenViewModel(
 
     fun onToggleMapType() {
         _mapLayer.value = when (_mapLayer.value) {
-            MapLayerType.STANDARD -> MapLayerType.TOPO
-            MapLayerType.TOPO -> MapLayerType.TRANSPORT
-            MapLayerType.TRANSPORT -> MapLayerType.STANDARD
+            MapLayerType.STANDARD -> MapLayerType.SATELLITE
+            MapLayerType.SATELLITE -> MapLayerType.DARK
+            MapLayerType.DARK -> MapLayerType.STANDARD
         }
     }
 

@@ -42,9 +42,12 @@ import com.example.navigo.data.PlaceCategory
 import com.example.navigo.data.TripHistory
 import org.osmdroid.config.Configuration
 import org.osmdroid.events.MapEventsReceiver
-import org.osmdroid.tileprovider.tilesource.TileSourceFactory
+import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
+import org.osmdroid.tileprovider.tilesource.XYTileSource
 import org.osmdroid.util.GeoPoint
+import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.MapView
+import java.io.File
 import org.osmdroid.views.overlay.MapEventsOverlay
 import org.osmdroid.views.overlay.Marker
 import org.osmdroid.views.overlay.Polyline
@@ -134,6 +137,43 @@ fun MainScreen(
     }
 }
 
+private val CARTO_VOYAGER = XYTileSource(
+    "CartoVoyager",
+    0, 19, 256, ".png",
+    arrayOf(
+        "https://a.basemaps.cartocdn.com/rastertiles/voyager/",
+        "https://b.basemaps.cartocdn.com/rastertiles/voyager/",
+        "https://c.basemaps.cartocdn.com/rastertiles/voyager/",
+        "https://d.basemaps.cartocdn.com/rastertiles/voyager/"
+    ),
+    "© OpenStreetMap contributors, © CARTO"
+)
+
+private val CARTO_DARK = XYTileSource(
+    "CartoDark",
+    0, 19, 256, ".png",
+    arrayOf(
+        "https://a.basemaps.cartocdn.com/dark_all/",
+        "https://b.basemaps.cartocdn.com/dark_all/",
+        "https://c.basemaps.cartocdn.com/dark_all/",
+        "https://d.basemaps.cartocdn.com/dark_all/"
+    ),
+    "© OpenStreetMap contributors, © CARTO"
+)
+
+private val ESRI_SATELLITE = object : OnlineTileSourceBase(
+    "EsriSatellite",
+    0, 18, 256, "",
+    arrayOf("https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/")
+) {
+    override fun getTileURLString(pMapTileIndex: Long): String {
+        return baseUrl +
+            MapTileIndex.getZoom(pMapTileIndex) + "/" +
+            MapTileIndex.getY(pMapTileIndex) + "/" +
+            MapTileIndex.getX(pMapTileIndex)
+    }
+}
+
 @Composable
 fun OsmMapView(
     state: MapUiState,
@@ -146,14 +186,15 @@ fun OsmMapView(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val mapView = remember {
-        Configuration.getInstance().load(
-            context,
-            context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE)
-        )
-        Configuration.getInstance().userAgentValue = context.packageName
+        Configuration.getInstance().apply {
+            osmdroidBasePath = File(context.cacheDir, "osmdroid")
+            osmdroidTileCache = File(context.cacheDir, "osmdroid/tiles")
+            load(context, context.getSharedPreferences("osmdroid", Context.MODE_PRIVATE))
+            userAgentValue = "NaviGoApp/1.0 (Android)"
+        }
 
         MapView(context).apply {
-            setTileSource(TileSourceFactory.MAPNIK)
+            setTileSource(CARTO_VOYAGER)
             setMultiTouchControls(true)
             controller.setZoom(14.5)
             controller.setCenter(state.userLocation)
@@ -195,11 +236,11 @@ fun OsmMapView(
         modifier = modifier,
         update = { view ->
             val targetTileSource = when (state.mapLayer) {
-                MapLayerType.STANDARD -> TileSourceFactory.MAPNIK
-                MapLayerType.TOPO -> TileSourceFactory.OpenTopo
-                MapLayerType.TRANSPORT -> TileSourceFactory.PUBLIC_TRANSPORT
+                MapLayerType.STANDARD -> CARTO_VOYAGER
+                MapLayerType.SATELLITE -> ESRI_SATELLITE
+                MapLayerType.DARK -> CARTO_DARK
             }
-            if (view.tileProvider.tileSource != targetTileSource) {
+            if (view.tileProvider.tileSource.name() != targetTileSource.name()) {
                 view.setTileSource(targetTileSource)
             }
 
